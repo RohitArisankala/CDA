@@ -13,6 +13,7 @@ Python app for finding pharmacy companies by location, tracking workflow stages,
 - Sample mode for demo data and live mode for Serper-powered search
 - Reads API keys from `.env`, with `.env.example` as a fallback
 - Visits company pages in live mode to extract cleaner company details
+- Broadens discovery with LinkedIn, Naukri, AmbitionBox, PharmaCompass, and other query-targeted sources
 
 ## Project Structure
 
@@ -24,7 +25,7 @@ Python app for finding pharmacy companies by location, tracking workflow stages,
 - `pharma_agent/enrich.py` applies extraction and deduplication logic.
 - `pharma_agent/pipeline.py` runs the staged workflow.
 - `pharma_agent/reporting.py` writes the Word document.
-- `pharma_agent/service.py` builds location query variations and saves reports.
+- `pharma_agent/service.py` builds source-specific location queries and saves reports.
 - `templates/index.html` contains the dashboard markup.
 - `static/styles.css` contains the blue-and-white UI styling.
 - `static/app.js` handles job creation, polling, and downloads.
@@ -51,13 +52,13 @@ Then open `http://127.0.0.1:5000` in your browser.
 
 1. Enter a location like `Hyderabad` or `Mumbai`.
 2. Click `Start Searching`.
-3. The app runs several pharmacy-related searches for that location.
+3. The app runs pharmacy-related searches plus source-targeted queries for LinkedIn, Naukri, and other sources.
 4. In live mode it opens candidate pages and extracts company details from the actual site.
-5. Results are cleaned, merged, and exported to a Word file.
-6. Download the generated report from the result card or report library.
+5. It also searches related job openings for each company.
+6. Results are cleaned, merged, and exported to a Word file.
 
 ## Notes
 
-- “All available companies” is best-effort, based on multiple web search variations and deduplication.
-- Live search quality depends on the results returned by Serper and whether the target pages allow fetching.
-- Contact details are heuristic unless explicitly present in the source input.
+- “All available companies” is still best-effort, not guaranteed exhaustive.
+- Live search quality depends on the results returned by Serper and whether source pages allow fetching.
+- Some sources like LinkedIn may limit page access, but their search results can still help discovery.
