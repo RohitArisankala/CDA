@@ -8,7 +8,7 @@ from uuid import uuid4
 import requests
 
 from pharma_agent.config import load_app_env
-from pharma_agent.enrich import dedupe_records, enrich_record, is_likely_company_record
+from pharma_agent.enrich import dedupe_records, enrich_record, is_likely_company_record, quality_score
 from pharma_agent.fetch import fetch_company_details
 from pharma_agent.models import JobRecord
 from pharma_agent.pipeline import PharmacyResearchAgent
@@ -144,8 +144,9 @@ def run_research_workflow(
         extracted_records = []
         for index, record in enumerate(raw_records, start=1):
             fetched = fetch_company_details(record)
+            fetched = enrich_record(fetched)
             if is_likely_company_record(fetched):
-                extracted_records.append(enrich_record(fetched))
+                extracted_records.append(fetched)
             if progress_callback:
                 progress_callback("research", "active", f"Processed company page {index} of {len(raw_records)}.")
 
@@ -154,9 +155,10 @@ def run_research_workflow(
             progress_callback("dedupe", "active", "Merging duplicate companies from multiple sources.")
 
         deduped = dedupe_records(extracted_records)
+        deduped = [record for record in deduped if quality_score(record) >= 4.0]
 
         if progress_callback:
-            progress_callback("dedupe", "completed", f"Reduced the list to {len(deduped)} unique companies in {query}.")
+            progress_callback("dedupe", "completed", f"Reduced the list to {len(deduped)} strong unique companies in {query}.")
             progress_callback("report", "active", "Finding related job openings from LinkedIn, Naukri, and other sources.")
 
         for index, company in enumerate(deduped, start=1):
@@ -186,18 +188,3 @@ def run_research_workflow(
         "company_count": len(result.companies),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
-
-
-def list_reports() -> list[dict]:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    reports = []
-    for path in sorted(OUTPUT_DIR.glob("*.docx"), key=lambda item: item.stat().st_mtime, reverse=True):
-        reports.append(
-            {
-                "filename": path.name,
-                "title": path.stem,
-                "size_kb": round(path.stat().st_size / 1024, 1),
-                "modified_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
-            }
-        )
-    return reports

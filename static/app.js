@@ -72,7 +72,7 @@ async function loadReports() {
 
 function setJobState(job) {
   renderStages(job.stages || []);
-  jobSummary.textContent = `${job.title} · ${job.mode === "live" ? "Live search" : "Sample mode"}`;
+  jobSummary.textContent = `${job.title} · Live search`;
 
   if (job.status === "completed" && job.report) {
     jobResult.classList.remove("hidden");

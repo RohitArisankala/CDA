@@ -25,6 +25,10 @@ BAD_NAME_PATTERNS = (
     "pharma companies in ",
     "pharmaceutical companies in ",
     "wikipedia",
+    "jobs in ",
+    "vacancies",
+    "careers",
+    "hiring",
 )
 BAD_DOMAIN_PARTS = (
     "justdial",
@@ -37,6 +41,18 @@ BAD_DOMAIN_PARTS = (
     "wikipedia",
     "wikidata",
     "mapquest",
+    "naukri",
+    "indeed",
+    "foundit",
+    "glassdoor",
+)
+AGGREGATOR_DOMAIN_PARTS = (
+    "linkedin",
+    "ambitionbox",
+    "pharmacompass",
+    "zaubacorp",
+    "tradeindia",
+    "indiamart",
 )
 GOOD_COMPANY_SUFFIXES = (
     "pharma",
@@ -92,6 +108,10 @@ def infer_location(text: str) -> str:
     return "Not found"
 
 
+def is_official_domain(domain: str) -> bool:
+    return domain != "Not found" and not any(part in domain for part in AGGREGATOR_DOMAIN_PARTS + BAD_DOMAIN_PARTS)
+
+
 def is_likely_company_name(name: str) -> bool:
     cleaned = clean_company_name(name).lower()
     if cleaned == "unknown company":
@@ -103,18 +123,77 @@ def is_likely_company_name(name: str) -> bool:
     return any(token in cleaned for token in GOOD_COMPANY_SUFFIXES) or len(cleaned.split()) <= 4
 
 
+def quality_score(record: CompanyRecord) -> float:
+    score = 0.0
+    if record.website != "Not found":
+        score += 2.0
+    if record.email != "Not found":
+        score += 1.5
+    if record.phone != "Not found":
+        score += 1.5
+    if record.location != "Not found":
+        score += 1.0
+    if record.products != "Not found":
+        score += 1.0
+    if record.description != "Not found":
+        score += 0.5
+    if is_official_domain(extract_domain(record.website)):
+        score += 2.5
+    return score
+
+
+def has_minimum_company_data(record: CompanyRecord) -> bool:
+    fields = sum(
+        1 for value in [record.website, record.email, record.phone, record.location, record.products] if value != "Not found"
+    )
+    return fields >= 2
+
+
 def is_likely_company_record(record: CompanyRecord) -> bool:
     name = clean_company_name(record.name).lower()
     domain = extract_domain(record.website)
     description = (record.description or "").lower()
+    website = (record.website or "").lower()
 
     if not is_likely_company_name(name):
         return False
     if any(pattern in description for pattern in ("top 10", "top 20", "best pharma", "list of companies", "wikipedia")):
         return False
+    if any(pattern in website for pattern in ("/jobs", "jobs-", "careers", "vacancies")):
+        return False
     if domain != "Not found" and any(part in domain for part in BAD_DOMAIN_PARTS):
         return False
+    if not has_minimum_company_data(record) and not is_official_domain(domain):
+        return False
     return True
+
+
+def merge_records(primary: CompanyRecord, secondary: CompanyRecord) -> CompanyRecord:
+    if primary.location == "Not found" and secondary.location != "Not found":
+        primary.location = secondary.location
+    if primary.website == "Not found" and secondary.website != "Not found":
+        primary.website = secondary.website
+    if primary.domain == "Not found" and secondary.domain != "Not found":
+        primary.domain = secondary.domain
+    if primary.email == "Not found" and secondary.email != "Not found":
+        primary.email = secondary.email
+    if primary.phone == "Not found" and secondary.phone != "Not found":
+        primary.phone = secondary.phone
+    if primary.products == "Not found" and secondary.products != "Not found":
+        primary.products = secondary.products
+    if primary.description == "Not found" and secondary.description != "Not found":
+        primary.description = secondary.description
+    if hasattr(secondary, "jobs") and secondary.jobs:
+        seen = {job.apply_link for job in primary.jobs}
+        for job in secondary.jobs:
+            if job.apply_link not in seen:
+                primary.jobs.append(job)
+                seen.add(job.apply_link)
+    for note in secondary.notes:
+        if note not in primary.notes:
+            primary.notes.append(note)
+    primary.confidence = max(primary.confidence, secondary.confidence)
+    return primary
 
 
 def enrich_record(record: CompanyRecord) -> CompanyRecord:
@@ -149,18 +228,7 @@ def enrich_record(record: CompanyRecord) -> CompanyRecord:
             record.notes.append("Location inferred from source text.")
 
     if record.confidence <= 0:
-        confidence = 0.35
-        if record.website != "Not found":
-            confidence += 0.2
-        if record.email != "Not found":
-            confidence += 0.15
-        if record.phone != "Not found":
-            confidence += 0.15
-        if record.location != "Not found":
-            confidence += 0.1
-        if record.products != "Not found":
-            confidence += 0.05
-        record.confidence = min(confidence, 0.95)
+        record.confidence = min(0.35 + quality_score(record) / 10.0, 0.98)
 
     return record
 
@@ -172,19 +240,21 @@ def dedupe_records(records: list[CompanyRecord]) -> list[CompanyRecord]:
         if not is_likely_company_record(record):
             continue
 
-        key = record.domain if record.domain != "Not found" else clean_company_name(record.name).lower()
+        normalized_name = clean_company_name(record.name).lower()
+        key = record.domain if is_official_domain(record.domain) else normalized_name
         existing = deduped.get(key)
-        if existing is None or record.confidence > existing.confidence:
-            deduped[key] = record
-        elif existing is not None:
-            existing.notes.extend(note for note in record.notes if note not in existing.notes)
-            if existing.products == "Not found" and record.products != "Not found":
-                existing.products = record.products
-            if existing.location == "Not found" and record.location != "Not found":
-                existing.location = record.location
-            if existing.email == "Not found" and record.email != "Not found":
-                existing.email = record.email
-            if existing.phone == "Not found" and record.phone != "Not found":
-                existing.phone = record.phone
 
-    return sorted(deduped.values(), key=lambda item: item.name.lower())
+        if existing is None:
+            deduped[key] = record
+            continue
+
+        existing_score = quality_score(existing)
+        current_score = quality_score(record)
+        if current_score > existing_score:
+            deduped[key] = merge_records(record, existing)
+        else:
+            deduped[key] = merge_records(existing, record)
+
+    final_records = [record for record in deduped.values() if is_likely_company_record(record)]
+    final_records.sort(key=lambda item: (not is_official_domain(item.domain), item.name.lower()))
+    return final_records

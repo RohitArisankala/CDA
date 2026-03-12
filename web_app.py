@@ -48,13 +48,13 @@ def update_stage(job_id: str, stage_key: str, status: str, message: str) -> None
         job["current_stage"] = stage_key
 
 
-def run_job(job_id: str, location: str, title: str, max_results: int, mode: str) -> None:
+def run_job(job_id: str, location: str, title: str, max_results: int) -> None:
     try:
         result = run_research_workflow(
             query=location,
             title=title,
             max_results=max_results,
-            mode=mode,
+            mode="live",
             progress_callback=lambda stage, status, message: update_stage(job_id, stage, status, message),
         )
         with job_lock:
@@ -88,9 +88,6 @@ def create_job():
     title = (payload.get("title") or f"Pharmacy Companies In {location}").strip()
     max_results = int(payload.get("max_results") or 5)
     max_results = max(1, min(max_results, 25))
-    mode = (payload.get("mode") or "sample").strip().lower()
-    if mode not in {"sample", "live"}:
-        return jsonify({"error": "Mode must be 'sample' or 'live'."}), 400
 
     job_id = uuid4().hex
     job = {
@@ -98,7 +95,7 @@ def create_job():
         "status": "running",
         "location": location,
         "title": title,
-        "mode": mode,
+        "mode": "live",
         "current_stage": "search",
         "stages": build_stage_state(),
         "report": None,
@@ -107,7 +104,7 @@ def create_job():
     with job_lock:
         jobs[job_id] = job
 
-    worker = threading.Thread(target=run_job, args=(job_id, location, title, max_results, mode), daemon=True)
+    worker = threading.Thread(target=run_job, args=(job_id, location, title, max_results), daemon=True)
     worker.start()
     return jsonify(serialize_job(job)), 202
 

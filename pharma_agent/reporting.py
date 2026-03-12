@@ -59,8 +59,8 @@ def build_report(result: ResearchResult, output_file: str | Path) -> Path:
         document.add_paragraph(f"Products / Specialization: {record.products}")
         document.add_paragraph(f"Description: {record.description}")
 
+        document.add_paragraph("Related Jobs:")
         if record.jobs:
-            document.add_paragraph("Open Roles:")
             for job in record.jobs[:5]:
                 paragraph = document.add_paragraph(style="List Bullet")
                 paragraph.add_run(f"{job.title} | {job.location} | Apply: ")
@@ -68,6 +68,8 @@ def build_report(result: ResearchResult, output_file: str | Path) -> Path:
                     add_hyperlink(paragraph, job.apply_link, job.apply_link)
                 else:
                     paragraph.add_run("Not found")
+        else:
+            document.add_paragraph("No clear job openings found for this company in the current search.")
 
     path = Path(output_file)
     document.save(path)
