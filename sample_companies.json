@@ -1,0 +1,40 @@
+﻿[
+  {
+    "name": "Sun Pharmaceutical Industries | Official Website",
+    "location": "Mumbai, India",
+    "website": "https://sunpharma.com",
+    "products": "Generic drugs, specialty medicines",
+    "description": "Sun Pharmaceutical Industries is based in Mumbai, India and develops generic drugs and specialty medicines.",
+    "source": "https://sunpharma.com",
+    "source_type": "company_site",
+    "confidence": 0.91
+  },
+  {
+    "name": "Dr. Reddy's Laboratories",
+    "location": "Hyderabad, India",
+    "website": "https://www.drreddys.com",
+    "products": "Generics, APIs, biosimilars",
+    "description": "Dr. Reddy's Laboratories in Hyderabad, India produces generics, APIs, and biosimilars.",
+    "source": "https://www.drreddys.com",
+    "source_type": "company_site",
+    "confidence": 0.9
+  },
+  {
+    "name": "Cipla - Official Site",
+    "location": "Mumbai, India",
+    "website": "https://www.cipla.com",
+    "products": "Respiratory, antiretroviral, urology medicines",
+    "description": "Cipla is headquartered in Mumbai, India and focuses on respiratory, antiretroviral, and urology medicines.",
+    "source": "https://www.cipla.com",
+    "source_type": "company_site",
+    "confidence": 0.9
+  },
+  {
+    "name": "Cipla",
+    "website": "https://www.cipla.com",
+    "description": "Cipla Mumbai, India contact info@cipla.com phone +91 22 2482 6000",
+    "source": "directory listing",
+    "source_type": "directory",
+    "confidence": 0.55
+  }
+]
