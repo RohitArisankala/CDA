@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import os
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -126,4 +127,6 @@ def download_report(filename: str):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_ENV") == "development"
+    app.run(host="0.0.0.0", port=port, debug=debug)
