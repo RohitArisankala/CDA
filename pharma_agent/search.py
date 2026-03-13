@@ -37,7 +37,7 @@ class SerperSearchSource:
             "https://google.serper.dev/search",
             headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
             json={"q": query, "num": max_results},
-            timeout=30,
+            timeout=18,
         )
         response.raise_for_status()
         payload = response.json()

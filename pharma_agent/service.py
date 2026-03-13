@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -8,7 +9,15 @@ from uuid import uuid4
 import requests
 
 from pharma_agent.config import load_app_env
-from pharma_agent.enrich import dedupe_records, enrich_record, is_likely_company_record, quality_score
+from pharma_agent.enrich import (
+    clean_company_name,
+    dedupe_records,
+    enrich_record,
+    extract_domain,
+    is_likely_company_record,
+    is_official_domain,
+    quality_score,
+)
 from pharma_agent.fetch import fetch_company_details
 from pharma_agent.models import JobRecord
 from pharma_agent.pipeline import PharmacyResearchAgent
@@ -16,13 +25,16 @@ from pharma_agent.reporting import build_report
 from pharma_agent.search import JsonFileSource, SerperSearchSource
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Vercel filesystem is read-only, except for /tmp
 if os.environ.get("VERCEL"):
     OUTPUT_DIR = Path("/tmp") / "outputs"
 else:
     OUTPUT_DIR = BASE_DIR / "outputs"
 SAMPLE_FILE = BASE_DIR / "sample_companies.json"
 SERPER_URL = "https://google.serper.dev/search"
+MAX_FETCH_WORKERS = 6
+MAX_JOB_WORKERS = 3
+MAX_COMPANIES_FOR_JOB_SEARCH = 5
+MAX_FETCH_CANDIDATES = 14
 
 
 def slugify(value: str) -> str:
@@ -35,17 +47,37 @@ def slugify(value: str) -> str:
 def build_location_queries(location: str) -> list[str]:
     place = location.strip()
     return [
-        f"pharmacy companies in {place}",
         f"pharmaceutical companies in {place}",
         f"pharma manufacturers in {place}",
-        f"pharma distributors in {place}",
-        f"site:linkedin.com/company pharmaceutical company {place}",
+        f"pharmacy companies in {place}",
         f"site:linkedin.com/company pharma {place}",
-        f"site:naukri.com pharmaceutical company {place}",
-        f"site:ambitionbox.com pharma companies {place}",
         f"site:pharmacompass.com company {place}",
         f"site:zaubacorp.com pharmaceutical {place}",
     ]
+
+
+def _candidate_priority(record) -> tuple[int, float, str]:
+    domain = extract_domain(record.website)
+    official = 1 if is_official_domain(domain) else 0
+    info_score = quality_score(record)
+    return (-official, -info_score, clean_company_name(record.name).lower())
+
+
+def _select_fetch_candidates(records: list, limit: int) -> list:
+    selected = []
+    seen_keys: set[str] = set()
+
+    for record in sorted(records, key=_candidate_priority):
+        domain = extract_domain(record.website)
+        key = domain if domain != "Not found" else clean_company_name(record.name).lower()
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        selected.append(record)
+        if len(selected) >= limit:
+            break
+
+    return selected
 
 
 def _serper_search(query: str, api_key: str, limit: int = 5) -> list[dict]:
@@ -53,7 +85,7 @@ def _serper_search(query: str, api_key: str, limit: int = 5) -> list[dict]:
         SERPER_URL,
         headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
         json={"q": query, "num": limit},
-        timeout=30,
+        timeout=18,
     )
     response.raise_for_status()
     payload = response.json()
@@ -64,9 +96,6 @@ def search_company_jobs(company_name: str, location: str, api_key: str) -> list[
     queries = [
         f'{company_name} jobs {location}',
         f'site:linkedin.com/jobs/view {company_name} {location}',
-        f'site:naukri.com {company_name} jobs {location}',
-        f'site:foundit.in {company_name} jobs {location}',
-        f'site:indeed.com {company_name} jobs {location}',
     ]
 
     seen_links: set[str] = set()
@@ -74,7 +103,7 @@ def search_company_jobs(company_name: str, location: str, api_key: str) -> list[
 
     for query in queries:
         try:
-            items = _serper_search(query, api_key, limit=4)
+            items = _serper_search(query, api_key, limit=2)
         except Exception:
             continue
 
@@ -98,10 +127,16 @@ def search_company_jobs(company_name: str, location: str, api_key: str) -> list[
                     summary=snippet or "Not found",
                 )
             )
-            if len(jobs) >= 5:
+            if len(jobs) >= 2:
                 return jobs
 
     return jobs
+
+
+def _fetch_and_enrich(record):
+    fetched = fetch_company_details(record, timeout=10)
+    fetched = enrich_record(fetched)
+    return fetched if is_likely_company_record(fetched) else None
 
 
 def run_research_workflow(
@@ -127,13 +162,13 @@ def run_research_workflow(
     else:
         api_key = os.getenv("SERPER_API_KEY")
         if not api_key:
-            raise ValueError("SERPER_API_KEY is not configured. Use sample mode or add the key to .env or .env.example.")
+            raise ValueError("SERPER_API_KEY is not configured. Add the key to .env or .env.example.")
         source = SerperSearchSource(api_key=api_key)
         queries = build_location_queries(query)
-        per_query_results = max(1, max_results)
+        per_query_results = max(1, min(max_results, 5))
 
         if progress_callback:
-            progress_callback("search", "active", f"Searching pharmacy companies for {query} across {len(queries)} sources and query variations.")
+            progress_callback("search", "active", f"Searching pharmacy companies for {query} across {len(queries)} source variations.")
 
         raw_records = []
         for index, current_query in enumerate(queries, start=1):
@@ -141,34 +176,54 @@ def run_research_workflow(
             if progress_callback:
                 progress_callback("search", "active", f"Search source {index} of {len(queries)} completed.")
 
+        fetch_limit = min(MAX_FETCH_CANDIDATES, max(8, max_results * 4))
+        candidate_records = _select_fetch_candidates(raw_records, fetch_limit)
+
         if progress_callback:
-            progress_callback("search", "completed", f"Collected {len(raw_records)} source candidates for {query}.")
-            progress_callback("research", "active", "Opening company pages and extracting contact details.")
+            progress_callback("search", "completed", f"Collected {len(raw_records)} source candidates and selected {len(candidate_records)} strong pages for extraction.")
+            progress_callback("research", "active", "Opening the strongest company pages and extracting contact details.")
 
         extracted_records = []
-        for index, record in enumerate(raw_records, start=1):
-            fetched = fetch_company_details(record)
-            fetched = enrich_record(fetched)
-            if is_likely_company_record(fetched):
-                extracted_records.append(fetched)
-            if progress_callback:
-                progress_callback("research", "active", f"Processed company page {index} of {len(raw_records)}.")
+        with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as executor:
+            futures = [executor.submit(_fetch_and_enrich, record) for record in candidate_records]
+            total = len(futures)
+            processed = 0
+            for future in as_completed(futures):
+                processed += 1
+                result_record = future.result()
+                if result_record is not None:
+                    extracted_records.append(result_record)
+                if progress_callback:
+                    progress_callback("research", "active", f"Processed company page {processed} of {total}.")
 
         if progress_callback:
             progress_callback("research", "completed", f"Extracted details from {len(extracted_records)} company pages.")
             progress_callback("dedupe", "active", "Merging duplicate companies from multiple sources.")
 
         deduped = dedupe_records(extracted_records)
-        deduped = [record for record in deduped if quality_score(record) >= 4.0]
+        deduped = [record for record in deduped if quality_score(record) >= 3.5]
 
         if progress_callback:
             progress_callback("dedupe", "completed", f"Reduced the list to {len(deduped)} strong unique companies in {query}.")
-            progress_callback("report", "active", "Finding related job openings from LinkedIn, Naukri, and other sources.")
+            progress_callback("report", "active", "Checking a few top companies for related job openings.")
 
-        for index, company in enumerate(deduped, start=1):
-            company.jobs = search_company_jobs(company.name, query, api_key)
-            if progress_callback:
-                progress_callback("report", "active", f"Added job search results for company {index} of {len(deduped)}.")
+        target_companies = deduped[:MAX_COMPANIES_FOR_JOB_SEARCH]
+        with ThreadPoolExecutor(max_workers=MAX_JOB_WORKERS) as executor:
+            future_map = {
+                executor.submit(search_company_jobs, company.name, query, api_key): company
+                for company in target_companies
+            }
+            completed = 0
+            total_jobs = len(future_map)
+            for future in as_completed(future_map):
+                completed += 1
+                company = future_map[future]
+                try:
+                    company.jobs = future.result()
+                except Exception:
+                    company.jobs = []
+                if progress_callback and total_jobs:
+                    progress_callback("report", "active", f"Checked job openings for company {completed} of {total_jobs}.")
 
         result = type("ResearchResultLike", (), {"query": query, "title": title, "companies": deduped})()
 

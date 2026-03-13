@@ -7,7 +7,16 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from pharma_agent.enrich import EMAIL_RE, PHONE_RE, clean_company_name, extract_domain, infer_location, is_likely_company_name, is_likely_company_record
+from pharma_agent.enrich import (
+    EMAIL_RE,
+    PHONE_RE,
+    clean_company_name,
+    clean_phone_number,
+    extract_domain,
+    infer_location,
+    is_likely_company_name,
+    is_likely_company_record,
+)
 from pharma_agent.models import CompanyRecord
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -24,7 +33,7 @@ PRODUCT_HINTS = (
     "oncology",
     "antibiotic",
 )
-CONTACT_PATHS = ("/contact", "/contact-us", "/about", "/about-us")
+CONTACT_PATHS = ("/contact", "/about")
 
 
 def _pick_first(*values: str) -> str:
@@ -45,9 +54,12 @@ def _extract_email(text: str, soup: BeautifulSoup) -> str:
 def _extract_phone(text: str, soup: BeautifulSoup) -> str:
     tel = soup.select_one("a[href^='tel:']")
     if tel and tel.get("href"):
-        return tel.get("href", "").replace("tel:", "").strip() or "Not found"
-    match = PHONE_RE.search(text)
-    return match.group(0).strip() if match else "Not found"
+        return clean_phone_number(tel.get("href", "").replace("tel:", "").strip())
+    for match in PHONE_RE.finditer(text):
+        cleaned = clean_phone_number(match.group(0))
+        if cleaned != "Not found":
+            return cleaned
+    return "Not found"
 
 
 def _extract_products(text: str) -> str:
@@ -148,7 +160,7 @@ def _fetch_page(url: str, timeout: int) -> tuple[str, BeautifulSoup] | None:
     return text, soup
 
 
-def fetch_company_details(record: CompanyRecord, timeout: int = 20) -> CompanyRecord:
+def fetch_company_details(record: CompanyRecord, timeout: int = 10) -> CompanyRecord:
     if record.website == "Not found":
         return record
 
@@ -198,7 +210,7 @@ def fetch_company_details(record: CompanyRecord, timeout: int = 20) -> CompanyRe
         website=website,
         domain=extract_domain(website),
         email=_pick_first(record.email, email),
-        phone=_pick_first(record.phone, phone),
+        phone=clean_phone_number(_pick_first(record.phone, phone)),
         products=products,
         description=description,
         source=record.source,

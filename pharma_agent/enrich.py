@@ -16,6 +16,21 @@ COMMON_SUFFIXES = (
     "facebook",
     "instagram",
 )
+COMMON_PREFIXES = (
+    "welcome to ",
+    "official website of ",
+    "home of ",
+)
+GENERIC_COMPANY_NAMES = {
+    "welcome to",
+    "home",
+    "homepage",
+    "official website",
+    "contact us",
+    "about us",
+    "distributor locator",
+    "pharmaceutical distributors",
+}
 BAD_NAME_PATTERNS = (
     "top ",
     "best ",
@@ -30,6 +45,7 @@ BAD_NAME_PATTERNS = (
     "vacancies",
     "careers",
     "hiring",
+    "distributor locator",
 )
 BAD_DOMAIN_PARTS = (
     "justdial",
@@ -84,11 +100,37 @@ def clean_company_name(value: str) -> str:
     name = re.sub(r"\s*\([^)]*\)$", "", name).strip()
     name = re.sub(r"\s+", " ", name).strip(" -:|,")
     lowered = name.lower()
+    for prefix in COMMON_PREFIXES:
+        if lowered.startswith(prefix):
+            name = name[len(prefix) :].strip(" -:|")
+            lowered = name.lower()
     for suffix in COMMON_SUFFIXES:
         if lowered.endswith(suffix):
             name = name[: -len(suffix)].strip(" -:|")
             lowered = name.lower()
+    if lowered in GENERIC_COMPANY_NAMES:
+        return "Unknown company"
     return name or "Unknown company"
+
+
+def clean_phone_number(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw or raw == "Not found":
+        return "Not found"
+
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) < 8 or len(digits) > 15:
+        return "Not found"
+    if len(set(digits)) <= 2:
+        return "Not found"
+    if any(digits == str(digit) * len(digits) for digit in range(10)):
+        return "Not found"
+    if digits in {"1234567890", "0123456789", "9876543210"}:
+        return "Not found"
+
+    if raw.startswith("+"):
+        return f"+{digits}"
+    return digits
 
 
 def extract_domain(url: str) -> str:
@@ -118,6 +160,8 @@ def is_official_domain(domain: str) -> bool:
 def is_likely_company_name(name: str) -> bool:
     cleaned = clean_company_name(name).lower()
     if cleaned == "unknown company":
+        return False
+    if cleaned in GENERIC_COMPANY_NAMES:
         return False
     if any(pattern in cleaned for pattern in BAD_NAME_PATTERNS):
         return False
@@ -212,6 +256,8 @@ def enrich_record(record: CompanyRecord) -> CompanyRecord:
     if record.domain == "Not found":
         record.domain = extract_domain(record.website)
 
+    record.phone = clean_phone_number(record.phone)
+
     if record.email == "Not found":
         email_match = EMAIL_RE.search(combined_text)
         if email_match:
@@ -221,8 +267,10 @@ def enrich_record(record: CompanyRecord) -> CompanyRecord:
     if record.phone == "Not found":
         phone_match = PHONE_RE.search(combined_text)
         if phone_match:
-            record.phone = phone_match.group(0)
-            record.notes.append("Phone inferred from source text.")
+            cleaned_phone = clean_phone_number(phone_match.group(0))
+            if cleaned_phone != "Not found":
+                record.phone = cleaned_phone
+                record.notes.append("Phone inferred from source text.")
 
     if record.location == "Not found":
         inferred_location = infer_location(combined_text)
