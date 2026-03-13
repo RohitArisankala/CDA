@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import html
 import re
 from urllib.parse import urlparse
 
@@ -78,8 +79,10 @@ GOOD_COMPANY_SUFFIXES = (
 
 
 def clean_company_name(value: str) -> str:
-    name = re.split(r"\s+[|:-]\s+", value or "", maxsplit=1)[0].strip()
+    name = html.unescape(value or "")
+    name = re.split(r"\s+[|:-]\s+", name, maxsplit=1)[0].strip()
     name = re.sub(r"\s*\([^)]*\)$", "", name).strip()
+    name = re.sub(r"\s+", " ", name).strip(" -:|,")
     lowered = name.lower()
     for suffix in COMMON_SUFFIXES:
         if lowered.endswith(suffix):

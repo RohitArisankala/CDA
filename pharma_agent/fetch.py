@@ -83,7 +83,25 @@ def _extract_name_from_text(text: str) -> str:
     return match.group(1).strip() if match else "Not found"
 
 
-def _extract_company_name(soup: BeautifulSoup, fallback: str, text: str) -> str:
+def _extract_name_from_domain(domain: str) -> str:
+    if domain == "Not found":
+        return "Not found"
+    base = domain.split(".")[0].strip()
+    if len(base) < 3:
+        return "Not found"
+    return re.sub(r"[-_]+", " ", base).title()
+
+
+def _extract_footer_name(text: str) -> str:
+    match = re.search(
+        r"(?:copyright|all rights reserved)[^A-Za-z0-9]{0,12}([A-Z][A-Za-z0-9&'.,\- ]{2,80}?\s(?:Pharma|Pharmaceuticals?|Laboratories|Labs|Healthcare|Biotech|Life Sciences|Limited|Ltd|Pvt Ltd|Private Limited))",
+        text,
+        re.IGNORECASE,
+    )
+    return match.group(1).strip() if match else "Not found"
+
+
+def _extract_company_name(soup: BeautifulSoup, fallback: str, text: str, domain: str) -> str:
     candidates = []
 
     ld_name = _extract_ld_json_name(soup)
@@ -99,10 +117,19 @@ def _extract_company_name(soup: BeautifulSoup, fallback: str, text: str) -> str:
         candidates.append(soup.h1.get_text(" ", strip=True))
     if soup.title:
         candidates.append(soup.title.get_text(" ", strip=True))
+    logo = soup.select_one("img[alt*='logo' i], img[class*='logo' i]")
+    if logo and logo.get("alt"):
+        candidates.append(logo.get("alt", "").strip())
 
     text_name = _extract_name_from_text(text)
     if text_name != "Not found":
         candidates.append(text_name)
+    footer_name = _extract_footer_name(text)
+    if footer_name != "Not found":
+        candidates.append(footer_name)
+    domain_name = _extract_name_from_domain(domain)
+    if domain_name != "Not found":
+        candidates.append(domain_name)
 
     candidates.append(fallback)
 
@@ -140,7 +167,8 @@ def fetch_company_details(record: CompanyRecord, timeout: int = 20) -> CompanyRe
     if meta_tag:
         meta_description = meta_tag.get("content", "").strip()
 
-    company_name = _extract_company_name(soup, _pick_first(record.name, page_title), compact_text)
+    domain = extract_domain(record.website)
+    company_name = _extract_company_name(soup, _pick_first(record.name, page_title), compact_text, domain)
     email = _extract_email(compact_text, soup)
     phone = _extract_phone(compact_text, soup)
     location = _pick_first(record.location, infer_location(compact_text))
