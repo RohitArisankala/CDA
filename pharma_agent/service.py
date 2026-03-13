@@ -34,7 +34,8 @@ SERPER_URL = "https://google.serper.dev/search"
 MAX_FETCH_WORKERS = 6
 MAX_JOB_WORKERS = 3
 MAX_COMPANIES_FOR_JOB_SEARCH = 5
-MAX_FETCH_CANDIDATES = 14
+MAX_FETCH_CANDIDATES = 24
+MIN_COMPANY_QUALITY = 2.5
 
 
 def slugify(value: str) -> str:
@@ -50,6 +51,7 @@ def build_location_queries(location: str) -> list[str]:
         f"pharmaceutical companies in {place}",
         f"pharma manufacturers in {place}",
         f"pharmacy companies in {place}",
+        f"pharma distributors in {place}",
         f"site:linkedin.com/company pharma {place}",
         f"site:pharmacompass.com company {place}",
         f"site:zaubacorp.com pharmaceutical {place}",
@@ -165,7 +167,7 @@ def run_research_workflow(
             raise ValueError("SERPER_API_KEY is not configured. Add the key to .env or .env.example.")
         source = SerperSearchSource(api_key=api_key)
         queries = build_location_queries(query)
-        per_query_results = max(1, min(max_results, 5))
+        per_query_results = max(1, min(max_results, 8))
 
         if progress_callback:
             progress_callback("search", "active", f"Searching pharmacy companies for {query} across {len(queries)} source variations.")
@@ -176,7 +178,7 @@ def run_research_workflow(
             if progress_callback:
                 progress_callback("search", "active", f"Search source {index} of {len(queries)} completed.")
 
-        fetch_limit = min(MAX_FETCH_CANDIDATES, max(8, max_results * 4))
+        fetch_limit = min(MAX_FETCH_CANDIDATES, max(12, max_results * 6))
         candidate_records = _select_fetch_candidates(raw_records, fetch_limit)
 
         if progress_callback:
@@ -201,7 +203,7 @@ def run_research_workflow(
             progress_callback("dedupe", "active", "Merging duplicate companies from multiple sources.")
 
         deduped = dedupe_records(extracted_records)
-        deduped = [record for record in deduped if quality_score(record) >= 3.5]
+        deduped = [record for record in deduped if quality_score(record) >= MIN_COMPANY_QUALITY]
 
         if progress_callback:
             progress_callback("dedupe", "completed", f"Reduced the list to {len(deduped)} strong unique companies in {query}.")

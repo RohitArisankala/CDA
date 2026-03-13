@@ -16,7 +16,7 @@
           Enter a city or state, let the app search pharmacy companies across LinkedIn and other sources, clean the results, search related jobs, and generate a Word file you can download.
         </p>
         <div class="hero-pills">
-          <span>Faster live search</span>
+          <span>Broader live search</span>
           <span>Company details + jobs</span>
           <span>Downloadable Word reports</span>
         </div>
@@ -33,7 +33,7 @@
           <div class="mini-stage"></div>
           <div class="mini-stage"></div>
         </div>
-        <p>Use smaller result counts for the fastest runs. The app now fetches company pages in parallel.</p>
+        <p>Use result counts between 5 and 7 for a broader company list. The app now fetches more strong pages before cleanup.</p>
       </div>
     </header>
 
@@ -58,11 +58,11 @@
           <div class="form-grid single-col">
             <label>
               <span>Results per search variation</span>
-              <input type="number" name="max_results" value="3" min="1" max="12" required>
+              <input type="number" name="max_results" value="6" min="1" max="12" required>
             </label>
           </div>
 
-          <p class="helper-text">For the best speed, keep results between 2 and 4. The app now runs faster parallel fetches in live mode.</p>
+          <p class="helper-text">For a broader company list, keep results between 5 and 7. Lower values will finish faster but may return fewer companies.</p>
           <button type="submit" id="submitButton" class="primary-btn">Start Searching</button>
         </form>
       </section>
