@@ -188,3 +188,20 @@ def run_research_workflow(
         "company_count": len(result.companies),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+def list_reports() -> list[dict]:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    reports: list[dict] = []
+
+    for path in sorted(OUTPUT_DIR.glob("*.docx"), key=lambda item: item.stat().st_mtime, reverse=True):
+        reports.append(
+            {
+                "filename": path.name,
+                "title": path.stem,
+                "size_kb": round(path.stat().st_size / 1024, 1),
+                "modified_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
+            }
+        )
+
+    return reports
