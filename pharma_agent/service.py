@@ -16,7 +16,11 @@ from pharma_agent.reporting import build_report
 from pharma_agent.search import JsonFileSource, SerperSearchSource
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = BASE_DIR / "outputs"
+# Vercel filesystem is read-only, except for /tmp
+if os.environ.get("VERCEL"):
+    OUTPUT_DIR = Path("/tmp") / "outputs"
+else:
+    OUTPUT_DIR = BASE_DIR / "outputs"
 SAMPLE_FILE = BASE_DIR / "sample_companies.json"
 SERPER_URL = "https://google.serper.dev/search"
 
