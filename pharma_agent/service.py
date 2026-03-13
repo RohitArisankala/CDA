@@ -34,7 +34,6 @@ SERPER_URL = "https://google.serper.dev/search"
 MAX_FETCH_WORKERS = 6
 MAX_JOB_WORKERS = 3
 MAX_COMPANIES_FOR_JOB_SEARCH = 5
-MAX_FETCH_CANDIDATES = 24
 MIN_COMPANY_QUALITY = 2.5
 
 
@@ -167,10 +166,10 @@ def run_research_workflow(
             raise ValueError("SERPER_API_KEY is not configured. Add the key to .env or .env.example.")
         source = SerperSearchSource(api_key=api_key)
         queries = build_location_queries(query)
-        per_query_results = max(1, min(max_results, 8))
+        per_query_results = max(1, max_results)
 
         if progress_callback:
-            progress_callback("search", "active", f"Searching pharmacy companies for {query} across {len(queries)} source variations.")
+            progress_callback("search", "active", f"Searching pharmacy companies for {query} across {len(queries)} source variations using up to {per_query_results} results per source.")
 
         raw_records = []
         for index, current_query in enumerate(queries, start=1):
@@ -178,7 +177,7 @@ def run_research_workflow(
             if progress_callback:
                 progress_callback("search", "active", f"Search source {index} of {len(queries)} completed.")
 
-        fetch_limit = min(MAX_FETCH_CANDIDATES, max(12, max_results * 6))
+        fetch_limit = max(len(queries), max_results * len(queries))
         candidate_records = _select_fetch_candidates(raw_records, fetch_limit)
 
         if progress_callback:
